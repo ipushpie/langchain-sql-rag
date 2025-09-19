@@ -24,24 +24,19 @@ print(db.get_usable_table_names())
 
 # 2. Initialize the Ollama LLM
 
-system_prompt = (
-    "You are an expert SQL assistant. "
-    "When generating SQL queries, output only raw SQL. "
-    "Do not use Markdown formatting or code fences."
+
+llm = OllamaLLM(
+    base_url=ollama_url,
+    model=model_name,
+    temperature=0,
+    handle_parsing_errors=True,
 )
-# llm = OllamaLLM(
-#     base_url=ollama_url,
-#     model=model_name,
-#     temperature=0,
-#     handle_parsing_errors=True,
-#     system_prompt=system_prompt,  # Add this line if supported
-# )
 
 # Initialize Google Gemini model (Gemini 2.5 or others)
-llm = ChatGoogleGenerativeAI(
-    model=gemini_model_name,
-    api_key=google_api_key,
-)
+# llm = ChatGoogleGenerativeAI(
+#     model=gemini_model_name,
+#     api_key=google_api_key,
+# )
 
 # 3. Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -52,10 +47,15 @@ agent_executor = create_sql_agent(
     toolkit=toolkit,
     verbose=True,
     handle_parsing_errors=True,
+
 )
 
 # 5. Ask a question
-question = "list down my last 5 contracts into the system. it's stored in the ContractExtraction table."
+question = (
+    "You are an expert SQL assistant. When generating SQL queries, output only the raw SQL code—"
+    "do not include any Markdown, code fences, or extra formatting. "
+    "Please provide a query to list the last 5 contracts stored in the ContractExtraction table."
+)
 
 # 6. Run the agent
 try:
