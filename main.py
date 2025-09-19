@@ -6,12 +6,16 @@ from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_ollama import OllamaLLM
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 # Load environment variables
 load_dotenv()
 db_uri = os.getenv("DATABASE_URL")
 ollama_url = os.getenv("OLLAMA_BASE_URL")
 model_name = os.getenv("OLLAMA_MODEL_NAME")
+google_api_key = os.getenv("GOOGLE_API_KEY")
+gemini_model_name = os.getenv("GOOGLE_GEMINI_MODEL_NAME")
 
 # 1. Initialize the SQL database
 db = SQLDatabase.from_uri(db_uri)
@@ -25,13 +29,18 @@ system_prompt = (
     "When generating SQL queries, output only raw SQL. "
     "Do not use Markdown formatting or code fences."
 )
-llm = OllamaLLM(
-    base_url=ollama_url,
-    model=model_name,
-    temperature=0,
-    handle_parsing_errors=True,
-    system_prompt=system_prompt,  # Add this line if supported
-    
+# llm = OllamaLLM(
+#     base_url=ollama_url,
+#     model=model_name,
+#     temperature=0,
+#     handle_parsing_errors=True,
+#     system_prompt=system_prompt,  # Add this line if supported
+# )
+
+# Initialize Google Gemini model (Gemini 2.5 or others)
+llm = ChatGoogleGenerativeAI(
+    model=gemini_model_name,
+    api_key=google_api_key,
 )
 
 # 3. Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
