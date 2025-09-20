@@ -23,19 +23,12 @@ print("\n📦 Available Tables:")
 print(db.get_usable_table_names())
 
 # 2. Initialize the Ollama LLM
-system_prompt = (
-    "You are an expert SQL assistant. "
-    "Your ONLY task is to generate a raw SQL query based on the user's question. "
-    "NEVER wrap the SQL query in Markdown code fences (```sql) or any other formatting. "
-    "Just return the plain SQL query and nothing else."
-)
 
 llm = OllamaLLM(
     base_url=ollama_url,
     model=model_name,
     temperature=0,
     handle_parsing_errors=True,
-    system_prompt=system_prompt,
 )
 
 # Initialize Google Gemini model (Gemini 2.5 or others)
@@ -56,7 +49,8 @@ agent_executor = create_sql_agent(
 )
 
 # 5. Ask a question
-question = "List the last 5 contracts from the ContractExtraction table."
+# question = "List down the different PIIs"
+question = "List down the past data breaches with their details."
 
 # 6. Run the agent
 try:
