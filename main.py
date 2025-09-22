@@ -24,17 +24,17 @@ print(db.get_usable_table_names())
 
 # 2. Initialize the Ollama LLM
 
-# llm = ChatOllama(
-#     base_url=ollama_url,
-#     model=model_name,
-#     temperature=0,
-# )
+llm = ChatOllama(
+    base_url=ollama_url,
+    model=model_name,
+    temperature=0,
+)
 
 # Initialize Google Gemini model (Gemini 2.5 or others)
-llm = ChatGoogleGenerativeAI(
-    model=gemini_model_name,
-    api_key=google_api_key,
-)
+# llm = ChatGoogleGenerativeAI(
+#     model=gemini_model_name,
+#     api_key=google_api_key,
+# )
 
 # 3. Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -49,7 +49,7 @@ agent_executor = create_sql_agent(
 )
 
 # 5. Ask a question
-question = "What are the different risk registered into the system for customer_id 129"
+question = "What are the recent risk registered into the system for customer_id 129"
 
 # 6. Run the agent
 try:
