@@ -6,7 +6,6 @@ from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_ollama import ChatOllama
-from langchain.agents.agent import AgentExecutor
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents.agent_types import AgentType
 
@@ -25,17 +24,17 @@ print(db.get_usable_table_names())
 
 # 2. Initialize the Ollama LLM
 
-llm = ChatOllama(
-    base_url=ollama_url,
-    model=model_name,
-    temperature=0,
-)
+# llm = ChatOllama(
+#     base_url=ollama_url,
+#     model=model_name,
+#     temperature=0,
+# )
 
 # Initialize Google Gemini model (Gemini 2.5 or others)
-# llm = ChatGoogleGenerativeAI(
-#     model=gemini_model_name,
-#     api_key=google_api_key,
-# )
+llm = ChatGoogleGenerativeAI(
+    model=gemini_model_name,
+    api_key=google_api_key,
+)
 
 # 3. Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -50,7 +49,7 @@ agent_executor = create_sql_agent(
 )
 
 # 5. Ask a question
-question = "Which processing activities are incomplete?"
+question = "List down the last 5 customers added to the system"
 
 # 6. Run the agent
 try:
