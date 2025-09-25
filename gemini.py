@@ -53,15 +53,15 @@ agent_executor = create_sql_agent(
 app = FastAPI()
 
 class Query(BaseModel):
-    question: str
+    user_input: str
     customer_id: int = None
 
-def ask_question(question: str, customer_id: int = None):
+def ask_question(user_input: str, customer_id: int = None):
     """
     This function takes a question as input and returns the answer from the agent.
     """
     try:
-        final_question = question
+        final_question = user_input
         if customer_id is not None:
             final_question += f" for customer id {customer_id}"
         response = agent_executor.invoke({"input": final_question})
@@ -72,7 +72,7 @@ def ask_question(question: str, customer_id: int = None):
 
 @app.post("/ask")
 def ask(query: Query):
-    answer = ask_question(query.question, query.customer_id)
+    answer = ask_question(query.user_input, query.customer_id)
     return {"answer": answer}
 
 if __name__ == "__main__":
