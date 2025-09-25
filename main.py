@@ -50,9 +50,9 @@ agent_executor = create_sql_agent(
 )
 
 # 5. Ask a question
-# question = "Which processing activities are incomplete?"
-# question = "What are the recent risks registered in the system for customer_id 129?"
-question = "List down the last 5 customers added to the system"
+# question = "Which processing activities(ropa) are incomplete?"
+question = "What are the recent risks registered in the system for customer_id 129?"
+# question = "List down the last 5 customers added to the system"
 
 # 6. Run the agent
 try:

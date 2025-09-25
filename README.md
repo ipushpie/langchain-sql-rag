@@ -47,6 +47,10 @@ Run the main script:
 python main.py
 ```
 
+To run the API server:
+```bash
+python gemini.py
+```
 
 ## Example
 The following example demonstrates how the code works:

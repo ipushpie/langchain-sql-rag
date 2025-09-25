@@ -8,6 +8,8 @@ from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_ollama import ChatOllama
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents.agent_types import AgentType
+from fastapi import FastAPI
+from pydantic import BaseModel
 
 # Load environment variables
 load_dotenv()
@@ -48,14 +50,31 @@ agent_executor = create_sql_agent(
     handle_parsing_errors=True,
 )
 
-# 5. Ask a question
-question = "List down the last 5 customers added to the system"
+app = FastAPI()
 
-# 6. Run the agent
-try:
-    response = agent_executor.invoke({"input": question})
-    print("\n📊 Answer:")
-    print(response["output"])
-except Exception as e:
-    print("❌ Error running the query:")
-    print(e)
+class Query(BaseModel):
+    question: str
+    customer_id: int = None
+
+def ask_question(question: str, customer_id: int = None):
+    """
+    This function takes a question as input and returns the answer from the agent.
+    """
+    try:
+        final_question = question
+        if customer_id is not None:
+            final_question += f" for customer id {customer_id}"
+        response = agent_executor.invoke({"input": final_question})
+        print(f"Agent response: {response}")
+        return response["output"]
+    except Exception as e:
+        return f"Error running the query: {e}"
+
+@app.post("/ask")
+def ask(query: Query):
+    answer = ask_question(query.question, query.customer_id)
+    return {"answer": answer}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
