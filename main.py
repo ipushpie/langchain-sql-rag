@@ -53,7 +53,9 @@ agent_executor = create_sql_agent(
 # question = "Which processing activities(ropa) are incomplete?"
 # question = "What are the recent risks registered in the system for customer_id 129?"
 # question = "List down the last 5 customers added to the system"
-question = "List down all the dsr requests for customer_id 639"
+# question = "List down all the dsr requests for customer_id 639"
+question = "Which cookies don’t have consent yet?"
+
 
 # 6. Run the agent
 try:
