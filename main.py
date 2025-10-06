@@ -18,17 +18,21 @@ model_name = os.getenv("OLLAMA_MODEL_NAME")
 google_api_key = os.getenv("GOOGLE_API_KEY")
 gemini_model_name = os.getenv("GOOGLE_GEMINI_MODEL_NAME")
 
-# 1. Initialize the SQL database
+# Initialize the SQL database
 db = SQLDatabase.from_uri(db_uri)
 print("\n📦 Available Tables:")
 print(db.get_usable_table_names())
 
-# 2. Initialize the Ollama LLM
+# Initialize the Ollama LLM
 
 llm = ChatOllama(
     base_url=ollama_url,
     model=model_name,
     temperature=0,
+    num_predict=512,        # Enough tokens for agent reasoning
+    top_p=0.9,              # Balanced sampling
+    top_k=40,               # Restrict to top probable tokens
+    repeat_penalty=1.1,     # Avoid repetition in responses
 )
 
 # Initialize Google Gemini model (Gemini 2.5 or others)
@@ -37,7 +41,7 @@ llm = ChatOllama(
 #     api_key=google_api_key,
 # )
 
-# 3. Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
+# Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
 
 # 4. Create the agent using the toolkit (this is the correct way!)
@@ -49,15 +53,15 @@ agent_executor = create_sql_agent(
     handle_parsing_errors=True,
 )
 
-# 5. Ask a question
+# Ask a question
 # question = "Which processing activities(ropa) are incomplete?"
 # question = "What are the recent risks registered in the system for customer_id 129?"
 # question = "List down the last 5 customers added to the system"
-# question = "List down all the dsr requests for customer_id 639"
-question = "Which cookies don’t have consent yet?"
+question = "List down all the open DSR requests"
+# question = "Which cookies don’t have consent yet?"
 
 
-# 6. Run the agent
+# Run the agent
 try:
     response = agent_executor.invoke({"input": question})
     print("\n📊 Answer:")
