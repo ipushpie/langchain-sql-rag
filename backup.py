@@ -48,27 +48,52 @@ def get_llm():
 
 llm = get_llm()
 
+def extract_foreign_key_relationships(schema_info: str) -> Dict[str, List[str]]:
+    """Extract foreign key relationships from schema information."""
+    relationships = {}
+    
+    # Pattern to match FOREIGN KEY constraints
+    fk_pattern = r'CONSTRAINT\s+\w+\s+FOREIGN KEY\s*\((\w+)\)\s+REFERENCES\s+(\w+)\s*\((\w+)\)'
+    
+    matches = re.findall(fk_pattern, schema_info, re.IGNORECASE)
+    
+    for local_column, referenced_table, referenced_column in matches:
+        if local_column not in relationships:
+            relationships[local_column] = []
+        relationships[local_column].append({
+            'table': referenced_table,
+            'column': referenced_column
+        })
+    
+    return relationships
+
 def get_relevant_tables(question: str) -> List[str]:
-    """Get relevant table names based on the question using intelligent analysis."""
+    """Get relevant table names based on the question using intelligent schema analysis."""
     print(f"🔍 Analyzing question for relevant tables: {question}")
     
     all_tables = db.get_usable_table_names()
     print(f"🔍 All available tables: {len(all_tables)} total")
     
-    # Create a prompt to ask the LLM which tables are most relevant
+    # Create an enhanced prompt that considers schema relationships
     table_selection_prompt = f"""
 Given this question: "{question}"
 
 And these available database tables: {', '.join(all_tables)}
 
-Select the 1-3 most relevant table names that would contain the data needed to answer this question.
-Consider:
-- What entities the question is asking about (users, customers, requests, etc.)
-- What operations are needed (list, count, recent, etc.)
-- The likely primary tables vs supporting/junction tables
+Your task is to select the most relevant tables that would contain the data needed to answer this question.
 
-Respond with ONLY the table names separated by commas, no explanations.
-Example: customer, dsr_request, users
+Consider:
+1. Primary tables that directly contain the main entities mentioned in the question
+2. Related lookup tables that contain descriptive names for IDs (like customer names, user names, etc.)
+3. Tables with foreign key relationships that would need to be joined for meaningful results
+
+For example:
+- If asking about "ROPAs", you might need both "ropa_register_of_proccessing_activity" and "customer" tables
+- If asking about "customers", you might need "customer" and potentially "users" tables
+- If asking about "departments", you might need "departments", "customer", and "users" tables
+
+Respond with table names separated by commas. Include both main tables and related tables needed for JOINs.
+Example: ropa_register_of_proccessing_activity, customer, ropa_master_data_subject_categories
 """
     
     try:
@@ -275,22 +300,43 @@ def format_results_as_markdown(results: List[Dict[str, Any]]) -> str:
     results_json = json.dumps(results, indent=2, default=str)
     return results_json
 
-# Create a custom prompt for better SQL generation
+# Create an enhanced custom prompt for intelligent SQL generation with JOINs
 custom_sql_prompt = ChatPromptTemplate.from_template("""
-You are a PostgreSQL expert. Given the following database schema and a question, write ONLY the SQL query to answer the question.
+You are a PostgreSQL expert. Given the following database schema and a question, write a SQL query that provides human-readable, meaningful results.
 
 Database Schema:
 {table_info}
 
-IMPORTANT INSTRUCTIONS:
-- Write ONLY the SQL query, no explanations or comments
-- Do not include any text before or after the SQL
-- Do not wrap in code blocks or markdown
-- Use proper PostgreSQL syntax
-- Pay careful attention to column names - use EXACTLY as shown in the schema (including quotes if present)
-- For timestamp columns, look for "createdAt", "updatedAt" etc. (camelCase with quotes)
-- Limit results to {top_k} rows if no specific limit is mentioned
-- Use double quotes for column names that contain special characters or mixed case
+CRITICAL INSTRUCTIONS FOR USER-FRIENDLY QUERIES:
+
+1. ANALYZE THE SCHEMA to understand foreign key relationships:
+   - Look for columns ending in '_id' that reference other tables
+   - Find FOREIGN KEY constraints in the schema
+   - Identify which tables contain descriptive names (like customer.name, users.firstName, etc.)
+
+2. CREATE INTELLIGENT JOINs to show meaningful names instead of IDs:
+   - JOIN tables to replace customer_id with customer names
+   - JOIN tables to replace user IDs with user names (firstName + lastName)
+   - JOIN tables to replace category/type IDs with their descriptive names
+   - Use LEFT JOIN to avoid losing records when related data might be missing
+
+3. SELECT MEANINGFUL COLUMNS:
+   - Prioritize human-readable names over raw IDs
+   - Use descriptive column aliases (e.g., customer.name AS customer_name)
+   - Include the main data requested but enhance it with meaningful context
+
+4. QUERY STRUCTURE:
+   - Write ONLY the SQL query, no explanations or comments
+   - Do not include any text before or after the SQL
+   - Do not wrap in code blocks or markdown
+   - Use proper PostgreSQL syntax with double quotes for mixed-case columns
+   - Limit results to {top_k} rows if no specific limit is mentioned
+
+EXAMPLE APPROACH:
+Instead of: SELECT customer_id, title FROM table_name
+Prefer: SELECT c.name AS customer_name, t.title, t.description 
+        FROM table_name t 
+        LEFT JOIN customer c ON t.customer_id = c.id
 
 Question: {input}
 
@@ -311,6 +357,13 @@ Please provide a comprehensive, well-formatted markdown summary of these results
 2. Key insights or patterns
 3. A nicely formatted table or list of the results
 4. Any relevant observations about the data
+
+IMPORTANT PRESENTATION GUIDELINES:
+- Focus on business-meaningful information, not technical database details
+- If the data contains names instead of IDs, present them prominently
+- Avoid mentioning database technical terms like "foreign keys" or "IDs"
+- Present information in a way that business users would understand
+- Use clear, descriptive language
 
 Make it easy to understand for someone who didn't see the original SQL query.
 """)
@@ -395,4 +448,5 @@ if __name__ == "__main__":
     # question = "List down all the open DSR requests"
     question = "What are the recent data breaches reported?"
     # question= "List down the last 5 customers added to the system"
+    # question= "List down all the ROPAs where status is incomplete"
     result = ask_question(question)
