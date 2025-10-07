@@ -49,56 +49,104 @@ def get_llm():
 llm = get_llm()
 
 def get_relevant_tables(question: str) -> List[str]:
-    """Get relevant table names based on the question using keyword matching."""
+    """Get relevant table names based on the question using intelligent analysis."""
     print(f"🔍 Analyzing question for relevant tables: {question}")
-    keywords = [word.lower() for word in question.split()]
-    print(f"🔍 Keywords extracted: {keywords}")
     
     all_tables = db.get_usable_table_names()
     print(f"🔍 All available tables: {len(all_tables)} total")
     
-    # First pass: Look for exact matches or highly relevant tables
-    exact_matches = []
-    high_priority_matches = []
-    partial_matches = []
+    # Create a prompt to ask the LLM which tables are most relevant
+    table_selection_prompt = f"""
+Given this question: "{question}"
+
+And these available database tables: {', '.join(all_tables)}
+
+Select the 1-3 most relevant table names that would contain the data needed to answer this question.
+Consider:
+- What entities the question is asking about (users, customers, requests, etc.)
+- What operations are needed (list, count, recent, etc.)
+- The likely primary tables vs supporting/junction tables
+
+Respond with ONLY the table names separated by commas, no explanations.
+Example: customer, dsr_request, users
+"""
+    
+    try:
+        # Use the LLM to select relevant tables
+        response = llm.invoke(table_selection_prompt)
+        
+        # Extract table names from response
+        if hasattr(response, 'content'):
+            table_names_str = response.content.strip()
+        else:
+            table_names_str = str(response).strip()
+        
+        print(f"🤖 LLM suggested tables: {table_names_str}")
+        
+        # Parse the response to get individual table names
+        suggested_tables = [name.strip() for name in table_names_str.split(',')]
+        
+        # Validate that suggested tables exist in our database
+        relevant_tables = []
+        for table in suggested_tables:
+            table_clean = table.strip()
+            if table_clean in all_tables:
+                relevant_tables.append(table_clean)
+                print(f"✅ Validated table: {table_clean}")
+            else:
+                print(f"⚠️ Suggested table not found: {table_clean}")
+        
+        # If LLM suggestions are invalid, fall back to keyword matching
+        if not relevant_tables:
+            print("🔄 LLM suggestions invalid, falling back to keyword matching...")
+            relevant_tables = fallback_table_selection(question, all_tables)
+        
+    except Exception as e:
+        print(f"❌ Error with LLM table selection: {e}")
+        print("🔄 Falling back to keyword matching...")
+        relevant_tables = fallback_table_selection(question, all_tables)
+    
+    print(f"✅ Selected relevant tables: {relevant_tables}")
+    return relevant_tables
+
+def fallback_table_selection(question: str, all_tables: List[str]) -> List[str]:
+    """Fallback method for table selection using keyword matching."""
+    keywords = [word.lower() for word in question.split()]
+    print(f"🔍 Keywords extracted: {keywords}")
+    
+    # Score tables based on relevance
+    table_scores = {}
     
     for table in all_tables:
         table_lower = table.lower()
+        score = 0
         
-        # Check for exact table name in question
+        # Exact match gets highest score
         if any(table_lower == keyword for keyword in keywords):
-            exact_matches.append(table)
-            print(f"🎯 Exact match found: {table}")
-        # Check for obvious main entity tables (customer, user, vendor, etc.)
-        elif any(keyword in ['customer', 'customers'] for keyword in keywords):
-            if table_lower == 'customer' or table_lower == 'users' or table_lower == 'vendor_list':
-                high_priority_matches.append(table)
-                print(f"🎯 High-priority entity match: {table}")
-        elif any(keyword in ['user', 'users'] for keyword in keywords):
-            if table_lower == 'users' or table_lower == 'customer':
-                high_priority_matches.append(table)
-                print(f"🎯 High-priority entity match: {table}")
-        elif any(keyword in ['vendor', 'vendors'] for keyword in keywords):
-            if table_lower == 'vendor_list':
-                high_priority_matches.append(table)
-                print(f"🎯 High-priority entity match: {table}")
-        # Check for partial matches but be more selective
-        elif any(keyword in table_lower for keyword in keywords):
-            # Prioritize simpler table names (fewer underscores = more likely to be main tables)
-            if table_lower.count('_') <= 2:
-                partial_matches.append(table)
-                print(f"🎯 Partial match: {table}")
+            score += 100
+        
+        # Partial match in table name
+        for keyword in keywords:
+            if keyword in table_lower:
+                score += 10
+        
+        # Penalty for complex table names (lots of underscores)
+        score -= table_lower.count('_') * 2
+        
+        # Bonus for common entity tables
+        if any(entity in table_lower for entity in ['user', 'customer', 'request', 'assessment', 'document']):
+            score += 5
+        
+        if score > 0:
+            table_scores[table] = score
     
-    # Use exact matches first, then high priority, then partial matches
-    relevant_tables = exact_matches or high_priority_matches or partial_matches[:3]
+    # Sort by score and take top 3
+    sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
+    relevant_tables = [table for table, score in sorted_tables[:3]]
     
-    # Final fallback: if still no matches, use some common tables
-    if not relevant_tables:
-        common_tables = ['customer', 'users', 'vendor_list', 'dsr_request', 'assessments']
-        relevant_tables = [t for t in common_tables if t in all_tables][:2]
-        print(f"⚠️ No keyword matches, using common tables: {relevant_tables}")
+    for table, score in sorted_tables[:3]:
+        print(f"🎯 Selected {table} (score: {score})")
     
-    print(f"✅ Selected relevant tables: {relevant_tables}")
     return relevant_tables
 
 def format_table_info(tables: List[str]) -> str:
