@@ -74,27 +74,23 @@ def get_relevant_tables(question: str) -> List[str]:
     all_tables = db.get_usable_table_names()
     print(f"🔍 All available tables: {len(all_tables)} total")
     
-    # Create an enhanced prompt that considers schema relationships
+    # Create a more structured prompt that forces clean output
     table_selection_prompt = f"""
-Given this question: "{question}"
+You are a database expert. Given this question and list of tables, select ONLY the most relevant table names.
 
-And these available database tables: {', '.join(all_tables)}
+Question: "{question}"
 
-Your task is to select the most relevant tables that would contain the data needed to answer this question.
+Available tables:
+{', '.join(all_tables)}
 
-Consider:
-1. Primary tables that directly contain the main entities mentioned in the question
-2. Related lookup tables that contain descriptive names for IDs (like customer names, user names, etc.)
-3. Tables with foreign key relationships that would need to be joined for meaningful results
+INSTRUCTIONS:
+1. Select 3-5 most relevant tables for answering the question
+2. Consider main data tables and related lookup tables for JOINs
+3. Output ONLY table names separated by commas
+4. NO explanations, NO bullet points, NO additional text
+5. Example format: table1, table2, table3
 
-For example:
-- If asking about "ROPAs", you might need both "ropa_register_of_proccessing_activity" and "customer" tables
-- If asking about "customers", you might need "customer" and potentially "users" tables
-- If asking about "departments", you might need "departments", "customer", and "users" tables
-
-Respond with table names separated by commas. Include both main tables and related tables needed for JOINs.
-Example: ropa_register_of_proccessing_activity, customer, ropa_master_data_subject_categories
-"""
+Table names:"""
     
     try:
         # Use the LLM to select relevant tables
@@ -106,10 +102,19 @@ Example: ropa_register_of_proccessing_activity, customer, ropa_master_data_subje
         else:
             table_names_str = str(response).strip()
         
-        print(f"🤖 LLM suggested tables: {table_names_str}")
+        print(f"🤖 LLM response: {repr(table_names_str)}")
+        
+        # Clean the response - remove any explanations or formatting
+        # Take only the first line if there are multiple lines
+        first_line = table_names_str.split('\n')[0].strip()
+        
+        # Remove any bullet points, numbers, or common prefixes
+        first_line = re.sub(r'^[-*•]\s*', '', first_line)
+        first_line = re.sub(r'^\d+\.\s*', '', first_line)
+        first_line = re.sub(r'^(tables?:?|relevant tables?:?)\s*', '', first_line, flags=re.IGNORECASE)
         
         # Parse the response to get individual table names
-        suggested_tables = [name.strip() for name in table_names_str.split(',')]
+        suggested_tables = [name.strip() for name in first_line.split(',')]
         
         # Validate that suggested tables exist in our database
         relevant_tables = []
@@ -142,37 +147,76 @@ def fallback_table_selection(question: str, all_tables: List[str]) -> List[str]:
     # Score tables based on relevance
     table_scores = {}
     
+    # Define entity mappings for better matching
+    entity_mappings = {
+        'breach': ['data_breach', 'breach'],
+        'data breach': ['data_breach', 'breach'],
+        'customer': ['customer'],
+        'user': ['user', 'users'],
+        'ropa': ['ropa'],
+        'request': ['request'],
+        'assessment': ['assessment'],
+        'department': ['department'],
+        'document': ['document'],
+        'dsr': ['data_subject_request', 'dsr'],
+        'privacy': ['privacy'],
+        'incident': ['incident', 'breach']
+    }
+    
     for table in all_tables:
         table_lower = table.lower()
         score = 0
         
-        # Exact match gets highest score
-        if any(table_lower == keyword for keyword in keywords):
-            score += 100
+        # Check entity mappings first
+        for keyword in keywords:
+            if keyword in entity_mappings:
+                for entity in entity_mappings[keyword]:
+                    if entity in table_lower:
+                        score += 50
         
-        # Partial match in table name
+        # Exact keyword matches
         for keyword in keywords:
             if keyword in table_lower:
-                score += 10
+                score += 20
         
-        # Penalty for complex table names (lots of underscores)
-        score -= table_lower.count('_') * 2
+        # Partial matches for compound words
+        for keyword in keywords:
+            if len(keyword) > 3:  # Only for meaningful keywords
+                if any(keyword in part for part in table_lower.split('_')):
+                    score += 10
         
-        # Bonus for common entity tables
-        if any(entity in table_lower for entity in ['user', 'customer', 'request', 'assessment', 'document']):
+        # Boost for common entity tables
+        if any(entity in table_lower for entity in ['customer', 'user', 'request', 'assessment', 'document', 'breach']):
             score += 5
+        
+        # Penalty for overly complex table names
+        score -= table_lower.count('_') * 1
         
         if score > 0:
             table_scores[table] = score
     
-    # Sort by score and take top 3
+    # Sort by score and take top tables
     sorted_tables = sorted(table_scores.items(), key=lambda x: x[1], reverse=True)
-    relevant_tables = [table for table, score in sorted_tables[:3]]
     
-    for table, score in sorted_tables[:3]:
-        print(f"🎯 Selected {table} (score: {score})")
+    # Take top 3-5 tables based on scores
+    top_tables = []
+    for table, score in sorted_tables[:5]:
+        if score >= 5:  # Minimum relevance threshold
+            top_tables.append(table)
+            print(f"🎯 Selected {table} (score: {score})")
     
-    return relevant_tables
+    # If no tables found, try a broader search
+    if not top_tables:
+        print("🔄 No high-scoring tables found, using broader search...")
+        # Look for any table containing any keyword
+        for table in all_tables:
+            table_lower = table.lower()
+            if any(keyword in table_lower for keyword in keywords if len(keyword) > 2):
+                top_tables.append(table)
+                if len(top_tables) >= 3:
+                    break
+    
+    return top_tables[:5]  # Limit to 5 tables maximum
 
 def format_table_info(tables: List[str]) -> str:
     """Format table information for the prompt."""
@@ -217,44 +261,53 @@ def clean_sql_query(query: str) -> str:
         query = sql_block_match.group(1).strip()
         print(f"🔍 Extracted from SQL code block: {repr(query)}")
     else:
-        # If no code block, try to extract SQL statement patterns
-        # Look for SELECT, INSERT, UPDATE, DELETE statements
-        sql_pattern = r'(SELECT\s+.*?)(?=\n\n|$|This|The|Please note)'
+        # Look for complete SQL statements (including multi-line with FROM clauses)
+        # Match from SELECT to the end, handling semicolons properly
+        sql_pattern = r'(SELECT\s+.*?)(?=;?\s*$)'
         sql_match = re.search(sql_pattern, query, re.DOTALL | re.IGNORECASE)
         if sql_match:
             query = sql_match.group(1).strip()
-            print(f"🔍 Extracted using SQL pattern: {repr(query)}")
+            print(f"🔍 Extracted using complete SQL pattern: {repr(query)}")
         else:
-            # Fallback: remove common explanatory text patterns
-            # Remove everything before the actual SQL keywords
+            # Fallback: remove everything before SELECT but keep everything after
             before_clean = query
             query = re.sub(r'^.*?(?=SELECT|INSERT|UPDATE|DELETE)', '', query, flags=re.DOTALL | re.IGNORECASE)
             if query != before_clean:
-                print(f"🔍 Removed prefix text: {repr(query)}")
+                print(f"🔍 Removed prefix text, preserved full SQL: {repr(query[:100])}...")
     
     # Remove common prefixes that LLMs sometimes add
     query = re.sub(r'^(sql|sqlquery|query):\s*', '', query.strip(), flags=re.IGNORECASE)
     query = re.sub(r'^```sql\s*', '', query, flags=re.IGNORECASE)
     query = re.sub(r'```\s*$', '', query)
     
-    # Remove explanatory text after the query
-    query = re.sub(r'\n\n.*?(?:This|The|Please note).*$', '', query, flags=re.DOTALL | re.IGNORECASE)
+    # Clean up whitespace but preserve line structure for complex queries
+    lines = query.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith('--'):  # Remove SQL comments
+            cleaned_lines.append(line)
     
-    # Clean up whitespace and remove trailing semicolon
-    query = query.strip()
+    # Join lines with spaces, but preserve some structure
+    query = ' '.join(cleaned_lines)
+    
+    # Remove trailing semicolon for execution
     if query.endswith(';'):
         query = query[:-1]
     
-    # Remove any remaining newlines within the query for cleaner execution
-    query = ' '.join(query.split())
-    
     print(f"🧹 Cleaned query: {repr(query)}")
     
-    # Validate that we have a proper SQL query
+    # Validate that we have a proper SQL query with FROM clause
     if not query or not re.match(r'^(SELECT|INSERT|UPDATE|DELETE)', query, re.IGNORECASE):
         print(f"⚠️ Warning: Cleaned query doesn't look like valid SQL!")
         print(f"⚠️ Original: {repr(original_query)}")
         print(f"⚠️ Cleaned: {repr(query)}")
+        return original_query.strip()  # Return original if cleaning failed
+    
+    # Check if SELECT query has FROM clause
+    if query.upper().startswith('SELECT') and 'FROM' not in query.upper():
+        print(f"⚠️ Warning: SELECT query missing FROM clause!")
+        return original_query.strip()  # Return original if incomplete
     
     return query
 
@@ -266,6 +319,13 @@ def execute_sql_query(query: str) -> List[Dict[str, Any]]:
         # Clean the query
         query = clean_sql_query(query)
         print(f"🔧 Cleaned query: {repr(query)}")
+        
+        # Validate the query
+        try:
+            query = validate_and_fix_sql(query)
+        except ValueError as e:
+            print(f"❌ SQL validation failed: {e}")
+            return []
         
         # Add LIMIT if not present
         if 'limit' not in query.lower():
@@ -302,71 +362,94 @@ def format_results_as_markdown(results: List[Dict[str, Any]]) -> str:
 
 # Create an enhanced custom prompt for intelligent SQL generation with JOINs
 custom_sql_prompt = ChatPromptTemplate.from_template("""
-You are a PostgreSQL expert. Given the following database schema and a question, write a SQL query that provides human-readable, meaningful results.
+You are a PostgreSQL expert. Given the database schema below, write a syntactically correct PostgreSQL query to answer the question.
 
 Database Schema:
 {table_info}
 
-CRITICAL INSTRUCTIONS FOR USER-FRIENDLY QUERIES:
+CRITICAL INSTRUCTIONS:
 
-1. ANALYZE THE SCHEMA to understand foreign key relationships:
-   - Look for columns ending in '_id' that reference other tables
-   - Find FOREIGN KEY constraints in the schema
-   - Identify which tables contain descriptive names (like customer.name, users.firstName, etc.)
-
-2. CREATE INTELLIGENT JOINs to show meaningful names instead of IDs:
-   - JOIN tables to replace customer_id with customer names
-   - JOIN tables to replace user IDs with user names (firstName + lastName)
-   - JOIN tables to replace category/type IDs with their descriptive names
-   - Use LEFT JOIN to avoid losing records when related data might be missing
-
-3. SELECT MEANINGFUL COLUMNS:
-   - Prioritize human-readable names over raw IDs
-   - Use descriptive column aliases (e.g., customer.name AS customer_name)
-   - Include the main data requested but enhance it with meaningful context
-
-4. QUERY STRUCTURE:
+1. RESPONSE FORMAT:
    - Write ONLY the SQL query, no explanations or comments
+   - Do not wrap in code blocks or markdown 
    - Do not include any text before or after the SQL
-   - Do not wrap in code blocks or markdown
-   - Use proper PostgreSQL syntax with double quotes for mixed-case columns
-   - Limit results to {top_k} rows if no specific limit is mentioned
+   - End with a semicolon
 
-EXAMPLE APPROACH:
-Instead of: SELECT customer_id, title FROM table_name
-Prefer: SELECT c.name AS customer_name, t.title, t.description 
-        FROM table_name t 
-        LEFT JOIN customer c ON t.customer_id = c.id
+2. COLUMN NAMES AND QUOTING:
+   - Use EXACT column names as shown in the schema
+   - Use double quotes for mixed-case columns (e.g., "createdAt", "updatedAt")
+   - Pay careful attention to capitalization in column names
+   - Never assume column names - only use what's shown in the schema
 
-Question: {input}
+3. QUERY CONSTRUCTION:
+   - Use proper PostgreSQL syntax
+   - Query for at most {top_k} results using LIMIT clause
+   - Never query for all columns - select only columns needed to answer the question
+   - Be careful about which column is in which table
+   - Use table aliases for cleaner queries
 
-SQL Query:""")
+4. JOINS AND RELATIONSHIPS:
+   - Look for foreign key relationships (columns ending in '_id')
+   - Use LEFT JOIN to include related descriptive names when possible
+   - Replace IDs with meaningful names when possible
+   - Ensure all JOIN conditions are correct
+
+5. ORDERING AND FILTERING:
+   - For "recent" data, look for timestamp columns like "createdAt", created_at, date_created
+   - Use DESC order for recent data
+   - Pay attention to exact column name formatting with quotes if needed
+
+Question: {input}""")
+
+# Add a validation function for Ollama compatibility
+def validate_and_fix_sql(query: str) -> str:
+    """Validate and fix common SQL issues for Ollama-generated queries."""
+    print(f"🔍 Validating SQL: {repr(query[:100])}...")
+    
+    # Basic syntax checks
+    if not query.strip():
+        raise ValueError("Empty SQL query")
+    
+    query_upper = query.upper()
+    
+    # Check for basic SQL structure
+    if not query_upper.startswith(('SELECT', 'INSERT', 'UPDATE', 'DELETE')):
+        raise ValueError("Query must start with a valid SQL command")
+    
+    # For SELECT queries, ensure FROM clause exists
+    if query_upper.startswith('SELECT') and 'FROM' not in query_upper:
+        raise ValueError("SELECT query missing FROM clause")
+    
+    # Check for balanced parentheses
+    if query.count('(') != query.count(')'):
+        print("⚠️ Warning: Unbalanced parentheses in query")
+    
+    # Check for proper quote matching
+    double_quotes = query.count('"')
+    if double_quotes % 2 != 0:
+        print("⚠️ Warning: Unmatched double quotes in query")
+    
+    print("✅ SQL validation passed")
+    return query
 
 # Create the SQL query generation chain with custom prompt
 sql_query_chain = create_sql_query_chain(llm, db, prompt=custom_sql_prompt)
 
 # Create the results formatting chain
 results_formatting_prompt = ChatPromptTemplate.from_template("""
-You are a helpful assistant that converts database query results into clear, human-readable markdown format.
+Convert the following database query results into a clean markdown table format.
 
-Here are the database query results:
+Results:
 {results}
 
-Please provide a comprehensive, well-formatted markdown summary of these results. Include:
-1. A brief overview of what the data shows
-2. Key insights or patterns
-3. A nicely formatted table or list of the results
-4. Any relevant observations about the data
+INSTRUCTIONS:
+- Create a simple markdown table with column headers
+- Show all the data clearly in rows
+- If no results, just say "No results found"
+- Do not add explanations, insights, or observations
+- Just present the data in a clean table format
 
-IMPORTANT PRESENTATION GUIDELINES:
-- Focus on business-meaningful information, not technical database details
-- If the data contains names instead of IDs, present them prominently
-- Avoid mentioning database technical terms like "foreign keys" or "IDs"
-- Present information in a way that business users would understand
-- Use clear, descriptive language
-
-Make it easy to understand for someone who didn't see the original SQL query.
-""")
+Table:""")
 
 results_formatting_chain = (
     results_formatting_prompt 
@@ -445,8 +528,8 @@ def ask_question(question: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Example usage
-    # question = "List down all the open DSR requests"
-    question = "List down the recent data breaches into the system"
+    question = "List down all the open DSR requests"
+    # question = "List down the recent data breaches into the system"
     # question= "List down the last 5 customers added to the system"
     # question= "List down all the ROPAs where status is incomplete"
     result = ask_question(question)
