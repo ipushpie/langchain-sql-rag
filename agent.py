@@ -12,7 +12,7 @@ from langchain.agents.agent_types import AgentType
 
 # Load environment variables
 load_dotenv()
-db_uri = os.getenv("DATABASE_URL")
+db_uri = os.getenv("NODE_DATABASE_URL")
 ollama_url = os.getenv("OLLAMA_BASE_URL")
 model_name = os.getenv("OLLAMA_MODEL_NAME")
 google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -25,21 +25,21 @@ print(db.get_usable_table_names())
 
 # Initialize the Ollama LLM
 
-llm = ChatOllama(
-    base_url=ollama_url,
-    model=model_name,
-    temperature=0,
-    num_predict=512,        # Enough tokens for agent reasoning
-    top_p=0.9,              # Balanced sampling
-    top_k=40,               # Restrict to top probable tokens
-    repeat_penalty=1.1,     # Avoid repetition in responses
-)
+# llm = ChatOllama(
+#     base_url=ollama_url,
+#     model=model_name,
+#     temperature=0,
+#     num_predict=512,        # Enough tokens for agent reasoning
+#     top_p=0.9,              # Balanced sampling
+#     top_k=40,               # Restrict to top probable tokens
+#     repeat_penalty=1.1,     # Avoid repetition in responses
+# )
 
 # Initialize Google Gemini model (Gemini 2.5 or others)
-# llm = ChatGoogleGenerativeAI(
-#     model=gemini_model_name,
-#     api_key=google_api_key,
-# )
+llm = ChatGoogleGenerativeAI(
+    model=gemini_model_name,
+    api_key=google_api_key,
+)
 
 # Create the SQL toolkit (this includes all the SQL tools like query, schema, etc.)
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
