@@ -16,14 +16,18 @@ from sqlalchemy import text
 load_dotenv()
 
 # Environment configuration
-db_uri = os.getenv("DATABASE_URL")
+node_db_uri = os.getenv("NODE_DATABASE_URL")
+dd_db_uri = os.getenv("DD_DATABASE_URL")
 ollama_url = os.getenv("OLLAMA_BASE_URL")
 ollama_model = os.getenv("OLLAMA_MODEL_NAME")
 google_api_key = os.getenv("GOOGLE_API_KEY")
 gemini_model = os.getenv("GOOGLE_GEMINI_MODEL_NAME")
 
 # Database connection
-db = SQLDatabase.from_uri(db_uri)
+node_db = SQLDatabase.from_uri(node_db_uri)
+dd_db = SQLDatabase.from_uri(dd_db_uri)
+
+db = dd_db  # Default to dd_db; can switch based on question context
 
 def get_llm():
     """Get the appropriate LLM based on available API keys."""
@@ -529,7 +533,9 @@ def ask_question(question: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Example usage
-    question = "List down all the open DSR requests"
+    # question = "List down all the open DSR requests"
+    # question = "List down all the access controls"
+    question = "List down all the distinct PIIs of tables"
     # question="provide me all the details about the dpia- Brady Wheeler for custumer id 639 along with the ropa associated"
     # question = "List down the recent data breaches into the system"
     # question= "List down the last 5 customers added to the system"
