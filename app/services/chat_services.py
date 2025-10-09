@@ -524,7 +524,7 @@ def ask_question(question: str) -> Dict[str, Any]:
         
         print(f"\n� Generated SQL: {result['sql_query']}")
         print(f"\n📊 Found {len(result['results'])} results")
-        print(f"\n🗣️ Answer:\n{result['answer']}")
+        # print(f"\n🗣️ Answer:\n{result['answer']}")
         
         return result
     
@@ -538,14 +538,3 @@ def ask_question(question: str) -> Dict[str, Any]:
             "error": str(e)
         }
 
-if __name__ == "__main__":
-    # Example usage
-    # question = "List down all the open DSR requests"
-    # question = "List down all the access controls"
-    # question = "List down all the distinct PIIs of tables"
-    # question="provide me all the details about the dpia- Brady Wheeler for custumer id 639 along with the ropa associated"
-    # question = "List down the recent data breaches into the system"
-    # question= "List down the last 5 customers added to the system"
-    # question= "List down all the ROPAs where status is incomplete"
-    question = "List down all access controls"
-    result = ask_question(question)
