@@ -69,3 +69,7 @@ coverage.xml
 
 # MacOS
 .DS_Store
+
+# Testing ipynb files
+*.ipynb_checkpoints
+*ipynb
