@@ -437,19 +437,20 @@ sql_query_chain = create_sql_query_chain(llm, db, prompt=custom_sql_prompt)
 
 # Create the results formatting chain
 results_formatting_prompt = ChatPromptTemplate.from_template("""
-Convert the following database query results into a clean markdown table format.
+Convert the following database query results into a clear, natural answer.
 
 Results:
 {results}
 
 INSTRUCTIONS:
-- Create a simple markdown table with column headers
-- Show all the data clearly in rows
-- If no results, just say "No results found"
-- Do not add explanations, insights, or observations
-- Just present the data in a clean table format
+- Provide a clear, direct answer based on the data
+- If there are only a few results (1-5), list them naturally in text
+- If there are many results (6+), use a simple table format
+- If no results, say "No results found" or "None found"
+- Be concise and natural - no unnecessary explanations
+- Focus on answering the original question directly
 
-Table:""")
+Answer:""")
 
 results_formatting_chain = (
     results_formatting_prompt 
@@ -529,6 +530,7 @@ def ask_question(question: str) -> Dict[str, Any]:
 if __name__ == "__main__":
     # Example usage
     question = "List down all the open DSR requests"
+    # question="provide me all the details about the dpia- Brady Wheeler for custumer id 639 along with the ropa associated"
     # question = "List down the recent data breaches into the system"
     # question= "List down the last 5 customers added to the system"
     # question= "List down all the ROPAs where status is incomplete"
