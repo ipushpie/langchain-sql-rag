@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # Main FastAPI application
+  langchain-sql-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: langchain-sql-mcp-app
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_GEMINI_MODEL_NAME=${GOOGLE_GEMINI_MODEL_NAME}
+      - NODE_DATABASE_URL=${NODE_DATABASE_URL}
+      - DD_DATABASE_URL=${DD_DATABASE_URL}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME}
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app:ro  # Mount app directory for development
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
