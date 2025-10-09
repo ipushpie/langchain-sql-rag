@@ -13,7 +13,7 @@ database_keywords = {
     ]
 }
 
-def db_selection(question: str, keywords_map=database_keywords) -> str:
+def database_dd(question: str, keywords_map=database_keywords) -> str:
     q = question.lower()
     def contains_any(keywords):
         for kw in keywords:
@@ -23,4 +23,4 @@ def db_selection(question: str, keywords_map=database_keywords) -> str:
 
     has_dspm = contains_any(keywords_map["dspm"])
     has_non_dspm = contains_any(keywords_map["non-dspm"])
-    return "dspm" if has_dspm and not has_non_dspm else "other"
+    return True if has_dspm and not has_non_dspm else False
