@@ -1,109 +1,69 @@
-# LangChain SQL MCP
+# LangChain RAG / MCP FastAPI App
 
-This project integrates LangChain with SQL databases using Model Context Protocol (MCP). It provides a flexible interface for querying, managing, and interacting with SQL databases through LangChain's powerful language model capabilities.
+This repository contains a FastAPI application that integrates LangChain and related utilities for retrieval-augmented generation (RAG) and Model Context Protocol (MCP) workflows. The app exposes an API under the `/api/chat` prefix and is runnable both locally and via Docker Compose.
 
-## Features
-- Connect to SQL databases (e.g., SQLite, PostgreSQL, MySQL)
-- Use LangChain to generate and execute SQL queries
-- Model Context Protocol (MCP) integration for context-aware operations
-- Easily configurable via environment variables
-- Extensible for custom workflows
+## What's in this repo
+- `main.py` — FastAPI application entrypoint. It mounts the chat router at `/api/chat`.
+- `app/` — Application code (routes, services, schemas, utils).
+- `docker-compose.yml`, `Dockerfile` — container and orchestration configuration.
+- `requirements.txt` — Python dependencies.
 
 ## Requirements
 - Python 3.8+
 - pip
-- Supported SQL database (SQLite by default)
 
-## Installation
-1. Clone the repository:
-   ```bash
-   git clone <your-repo-url>
-   cd langchain_sql_mcp
-   ```
-2. (Optional) Create and activate a virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## Configuration
-
-Create a `.env` file in the project root (see `.env.example` for template):
-
-```
-GOOGLE_API_KEY=your_google_api_key_here
-DATABASE_URL=your_database_connection_string_here
-OLLAMA_BASE_URL=http://localhost:11435
-OLLAMA_MODEL_NAME=my_model_name_here
-```
-
-## Usage
-Run the main script:
+## Quick install (local)
+1. (Optional) create and activate a virtualenv:
 ```bash
-python main.py
+python3 -m venv venv
+source venv/bin/activate
 ```
-
-To run the API server:
+2. Install dependencies:
 ```bash
-python gemini.py
+pip install -r requirements.txt
 ```
 
-## Example
-The following example demonstrates how the code works:
+3. Create a `.env` file in the project root (copy `.env.example` if present) and set required environment variables (see below).
 
-```python
-import os
-from dotenv import load_dotenv
-from langchain_community.utilities.sql_database import SQLDatabase
-from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
-from langchain_community.agent_toolkits.sql.base import create_sql_agent
-from langchain_ollama import OllamaLLM
+## Run locally (development)
+The FastAPI app is mounted in `main.py` and exposes routes under `/api/chat`. Start a development server with Uvicorn:
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+Open the interactive docs at: http://localhost:8000/docs
 
-load_dotenv()
-db_uri = os.getenv("DATABASE_URL")
-ollama_url = os.getenv("OLLAMA_BASE_URL")
-model_name = os.getenv("OLLAMA_MODEL_NAME")
+## Docker / Docker Compose
+This project includes a `docker-compose.yml` service named `langchain-ragflow` which builds the image from the repository `Dockerfile` and maps container port 8000 to host 8000. The compose service mounts `./app` into `/app/app` (read-only) for development convenience and includes a healthcheck against `/docs`.
 
-db = SQLDatabase.from_uri(db_uri)
-llm = OllamaLLM(
-   base_url=ollama_url,
-   model=model_name,
-   temperature=0,
-   handle_parsing_errors=True,
-   system_prompt="You are an expert SQL assistant. When generating SQL queries, output only raw SQL. Do not use Markdown formatting or code fences."
-)
-toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-agent_executor = create_sql_agent(
-   llm=llm,
-   toolkit=toolkit,
-   verbose=True,
-   handle_parsing_errors=True,
-)
-question = "list down my last 5 contracts into the system. it's stored in the ContractExtraction table."
-response = agent_executor.invoke({"input": question})
-print(response["output"])
+Start the service with:
+```bash
+docker-compose up --build
 ```
 
+Or run detached:
+```bash
+docker-compose up -d --build
+```
 
-## Environment Variables
-- `GOOGLE_API_KEY`: (Optional) Google API key for integrations
-- `DATABASE_URL`: Database connection string (e.g., PostgreSQL, SQLite)
-- `OLLAMA_BASE_URL`: Base URL for the Ollama server
-- `OLLAMA_MODEL_NAME`: Name of the Ollama model to use
+## API surface
+- Chat routes are available under `/api/chat` (see `app/routes/chat_routes.py`).
+- OpenAPI docs: `/docs`
 
-Refer to `.env.example` for sample values and formatting.
+## Environment variables
+These are referenced by `docker-compose.yml` and the application. Set them in a `.env` file or export them in your shell.
 
-## Project Structure
-- `main.py`: Entry point
-- `.env.example`: Example environment configuration
-- `.gitignore`: Files and folders to ignore in git
+- Required (for features you use):
+  - `GOOGLE_API_KEY` — Google API key for Gemini / Google integrations.
+  - `GOOGLE_GEMINI_MODEL_NAME` — Gemini model name to use (if using Google generative models).
 
-## Contributing
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+- Optional / service configuration:
+  - `DATABASE_URL` or `NODE_DATABASE_URL` / `DD_DATABASE_URL` — SQL database connection strings if you use DB features.
+  - `OLLAMA_BASE_URL` — Base URL for Ollama (default: `http://localhost:11435`).
+  - `OLLAMA_MODEL_NAME` — Ollama model name.
+
+## Development notes
+- The app includes a `chat` router (see `app/routes/chat_routes.py`) mounted at `/api/chat`.
+- Use the interactive docs at `/docs` to explore request/response schemas.
 
 ## License
 MIT
