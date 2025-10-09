@@ -13,6 +13,8 @@ from langchain_ollama import ChatOllama
 from langchain_google_genai import ChatGoogleGenerativeAI
 from sqlalchemy import text
 
+from database import database_dd
+
 load_dotenv()
 
 # Environment configuration
@@ -27,7 +29,6 @@ gemini_model = os.getenv("GOOGLE_GEMINI_MODEL_NAME")
 node_db = SQLDatabase.from_uri(node_db_uri)
 dd_db = SQLDatabase.from_uri(dd_db_uri)
 
-db = dd_db  # Default to dd_db; can switch based on question context
 
 def get_llm():
     """Get the appropriate LLM based on available API keys."""
@@ -436,8 +437,6 @@ def validate_and_fix_sql(query: str) -> str:
     print("✅ SQL validation passed")
     return query
 
-# Create the SQL query generation chain with custom prompt
-sql_query_chain = create_sql_query_chain(llm, db, prompt=custom_sql_prompt)
 
 # Create the results formatting chain
 results_formatting_prompt = ChatPromptTemplate.from_template("""
@@ -462,8 +461,10 @@ results_formatting_chain = (
     | StrOutputParser()
 )
 
-def create_sql_qa_chain():
+def create_sql_qa_chain(selected_db):
     """Create the complete SQL Q&A chain using LCEL."""
+    # Create the SQL query generation chain with custom prompt
+    sql_query_chain = create_sql_query_chain(llm, selected_db, prompt=custom_sql_prompt)
     
     # Step 1: Get relevant tables and create the modified SQL chain
     enhanced_sql_chain = (
@@ -512,7 +513,13 @@ def ask_question(question: str) -> Dict[str, Any]:
     print(f"\n🔍 Question: {question}")
     
     try:
-        chain = create_sql_qa_chain()
+        selected_is_dd = database_dd(question)
+        selected_db = dd_db if selected_is_dd else node_db
+        global db
+        db = selected_db
+        print(f"🗄️ Selected database: {'dd_db' if selected_is_dd else 'node_db'}")
+
+        chain = create_sql_qa_chain(selected_db)
         result = chain.invoke({"question": question})
         
         print(f"\n� Generated SQL: {result['sql_query']}")
@@ -535,9 +542,10 @@ if __name__ == "__main__":
     # Example usage
     # question = "List down all the open DSR requests"
     # question = "List down all the access controls"
-    question = "List down all the distinct PIIs of tables"
+    # question = "List down all the distinct PIIs of tables"
     # question="provide me all the details about the dpia- Brady Wheeler for custumer id 639 along with the ropa associated"
     # question = "List down the recent data breaches into the system"
     # question= "List down the last 5 customers added to the system"
     # question= "List down all the ROPAs where status is incomplete"
+    question = "List down all access controls"
     result = ask_question(question)
