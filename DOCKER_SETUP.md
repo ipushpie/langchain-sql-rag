@@ -34,7 +34,7 @@
 
 ## Services Included
 
-### 1. langchain-sql-mcp (Main Application)
+### 1. langchain-ragflow (Main Application)
 - **Port**: 8000
 - **Description**: Standalone FastAPI application with LangChain integration
 - **Health Check**: Available at `/docs`
@@ -77,7 +77,7 @@ docker-compose down -v
 docker-compose logs
 
 # View specific service logs
-docker-compose logs langchain-sql-mcp
+docker-compose logs langchain-ragflow
 
 # Follow logs
 docker-compose logs -f
@@ -103,7 +103,7 @@ docker-compose logs -f
 
 3. **Scale services** (if needed):
    ```bash
-   docker-compose up --scale langchain-sql-mcp=3
+   docker-compose up --scale langchain-ragflow=3
    ```
 
 4. **Use production-ready images**:
@@ -126,7 +126,7 @@ docker-compose logs -f
 docker-compose ps
 
 # Check individual service
-docker-compose exec langchain-sql-mcp curl http://localhost:8000/docs
+docker-compose exec langchain-ragflow curl http://localhost:8000/docs
 ```
 
 ### Reset Everything

@@ -2,11 +2,11 @@ version: '3.8'
 
 services:
   # Main FastAPI application
-  langchain-sql-mcp:
+  langchain-ragflow:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: langchain-sql-mcp-app
+    container_name: langchain-ragflow-app
     ports:
       - "8000:8000"
     environment:
