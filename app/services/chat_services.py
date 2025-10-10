@@ -476,7 +476,7 @@ You are a data-to-JSON formatting expert. Your task is to convert database resul
     -   Directly answer the user's question using the provided database results.
     -   For 1-5 result rows: Summarize them in a clear, natural language sentence.
     -   For 6+ result rows: Format the answer as a simple Markdown table.
-    -   If results are empty: The answer should be "No results found for your query."
+    -   If results are empty: Provide a helpful message like "I couldn't find any data matching your question. You might want to try asking about specific topics like customers, requests, assessments, or data breaches. Feel free to rephrase your question!"
 3.  **`routes` Key:**
     -   The value must be the first link from the "Selected Routes" list.
 4.  **VALIDITY:** Ensure the dict is perfectly valid and uses standard spaces for indentation. Do not use any special or non-standard whitespace characters.
@@ -550,9 +550,69 @@ def create_sql_qa_chain(selected_db):
     )
     return final_chain
 
+def is_greeting_or_general(question: str) -> bool:
+    """Check if the question is a greeting or general conversation."""
+    question_lower = question.lower().strip()
+    
+    # Common greeting patterns
+    greeting_patterns = [
+        r'^(hi|hello|hey|good morning|good afternoon|good evening)',
+        r'^(how are you|how\'s it going|what\'s up)',
+        r'^(thanks|thank you|bye|goodbye|see you)',
+        r'^(who are you|what can you do|help me)',
+        r'^(how do you work|what is this|explain)'
+    ]
+    
+    # Check if it's a greeting
+    for pattern in greeting_patterns:
+        if re.match(pattern, question_lower):
+            return True
+    
+    # Check if question is too short or doesn't seem database-related
+    if len(question_lower.split()) <= 2 and not any(keyword in question_lower for keyword in 
+        ['show', 'list', 'find', 'get', 'search', 'count', 'total', 'recent', 'last', 'first', 'latest']):
+        return True
+    
+    return False
+
+def generate_greeting_response(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
+    """Generate a friendly greeting response with helpful information."""
+    question_lower = question.lower().strip()
+    
+    # Personalized greeting responses
+    if any(greeting in question_lower for greeting in ['hi', 'hello', 'hey']):
+        answer = "Hello! I'm your AI assistant. I can help you find information from your database. You can ask me questions like 'Show me recent data breaches' or 'List all customers'."
+    elif any(phrase in question_lower for phrase in ['how are you', 'how\'s it going']):
+        answer = "I'm doing great, thank you for asking! I'm here to help you query and analyze your data. What would you like to know?"
+    elif any(phrase in question_lower for phrase in ['who are you', 'what can you do']):
+        answer = "I'm an AI assistant that can help you explore your database. I can answer questions about your data, generate reports, and help you find specific information. Try asking me about customers, requests, assessments, or any other data you're looking for."
+    elif any(phrase in question_lower for phrase in ['thank', 'thanks']):
+        answer = "You're welcome! Feel free to ask me any questions about your data whenever you need help."
+    elif any(phrase in question_lower for phrase in ['bye', 'goodbye']):
+        answer = "Goodbye! Come back anytime if you need help with your data queries."
+    else:
+        answer = "Hello! I'm your AI data assistant. I can help you find information from your database. Try asking me specific questions about your data, and I'll do my best to help you!"
+    
+    # Return empty routes for greetings since no navigation suggestion is relevant
+    return {
+        "question": question,
+        "sql_query": None,
+        "results": [],
+        "answer": {
+            "answer": answer,
+            "routes": ""
+        }
+    }
+
 def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
     """Ask a question and get a formatted answer using the SQL Q&A chain."""
     print(f"\n🔍 Question: {question}")
+    
+    # Check if it's a greeting or general conversation
+    if is_greeting_or_general(question):
+        print("👋 Detected greeting/general question, generating friendly response")
+        return generate_greeting_response(question, navigation_routes)
+    
     try:
         selected_is_dd = database_dd(question)
         selected_db = dd_db if selected_is_dd else node_db
@@ -572,7 +632,16 @@ def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
         print(f"🧭 Routes used: {result.get('selected_routes', [])}")
         print(f"📊 Found {len(result['results'])} results")
         print(result.get("answer"))
-        result['answer'] = llm_result_parser(result.get("answer"))
+        
+        # Parse the result
+        parsed_answer = llm_result_parser(result.get("answer"))
+        
+        # If no results found, provide a helpful fallback
+        if not result['results'] and isinstance(parsed_answer, dict):
+            if parsed_answer.get("answer") in ["No results found for your query.", "No results found."]:
+                parsed_answer["answer"] = "I couldn't find any specific data matching your question. This could mean the data doesn't exist, or you might want to try rephrasing your question. Feel free to ask about customers, requests, assessments, or other specific data you're looking for."
+        
+        result['answer'] = parsed_answer
         return result
     
     except Exception as e:
@@ -581,7 +650,10 @@ def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
             "question": question,
             "sql_query": None,
             "results": [],
-            "answer": f"Sorry, I encountered an error: {e}",
+            "answer": {
+                "answer": "I encountered an issue while processing your request. Please try rephrasing your question or ask about specific data like customers, requests, or assessments. I'm here to help!",
+                "routes": ""
+            },
             "error": str(e)
         }
 
