@@ -14,6 +14,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from sqlalchemy import text
 
 from app.utils.database import database_dd
+from app.utils.helper import llm_result_parser
 
 load_dotenv()
 
@@ -438,22 +439,55 @@ def validate_and_fix_sql(query: str) -> str:
     return query
 
 
-# Create the results formatting chain
-results_formatting_prompt = ChatPromptTemplate.from_template("""
-Convert the following database query results into a clear, natural answer.
+navigation_selection_prompt = ChatPromptTemplate.from_template("""
+You have to select one navigation route from selection given. Using user question, and tables selected for producing results.
 
-Results:
-{results}
+Question: 
+{question}
+
+Tables from database:
+{tables}
+
+Routes:
+{routes}
 
 INSTRUCTIONS:
-- Provide a clear, direct answer based on the data
-- If there are only a few results (1-5), list them naturally in text
-- If there are many results (6+), use a simple table format
-- If no results, say "No results found" or "None found"
-- Be concise and natural - no unnecessary explanations
-- Focus on answering the original question directly
+- Choose at max 1 route
+- Do not change or alter the route
+""")
 
-Answer:""")
+results_formatting_prompt = ChatPromptTemplate.from_template("""
+You are a data-to-JSON formatting expert. Your task is to convert database results into a single, valid JSON object.
+
+**Question:**
+{question}
+
+**Selected Routes (Links):**
+{selected_routes}
+
+**Database Results:**
+{results}
+
+---
+**RESPONSE GUIDELINES:**
+
+1.  **DICT ONLY:** Your entire output MUST be a single, raw Dict. Do not include any explanatory text before or after.
+2.  **`answer` Key:**
+    -   Directly answer the user's question using the provided database results.
+    -   For 1-5 result rows: Summarize them in a clear, natural language sentence.
+    -   For 6+ result rows: Format the answer as a simple Markdown table.
+    -   If results are empty: The answer should be "No results found for your query."
+3.  **`routes` Key:**
+    -   The value must be the first link from the "Selected Routes" list.
+4.  **VALIDITY:** Ensure the dict is perfectly valid and uses standard spaces for indentation. Do not use any special or non-standard whitespace characters.
+
+---
+**EXAMPLE OUTPUT FORMAT:**
+{{
+    "answer": "A concise natural language answer or a Markdown table.",
+    "routes": "/example/route/from/selected_routes"
+}}
+""")
 
 results_formatting_chain = (
     results_formatting_prompt 
@@ -462,70 +496,83 @@ results_formatting_chain = (
 )
 
 def create_sql_qa_chain(selected_db):
-    """Create the complete SQL Q&A chain using LCEL."""
-    # Create the SQL query generation chain with custom prompt
+    """Create the complete SQL Q&A chain using LCEL with raw LLM route selection."""
     sql_query_chain = create_sql_query_chain(llm, selected_db, prompt=custom_sql_prompt)
-    
-    # Step 1: Get relevant tables and create the modified SQL chain
-    enhanced_sql_chain = (
-        RunnablePassthrough.assign(
-            table_names_to_use=lambda x: get_relevant_tables(x["question"])
-        )
-        | RunnablePassthrough.assign(
-            table_info=lambda x: format_table_info(x["table_names_to_use"])
-        )
-        | sql_query_chain
+
+    # Prepare schema context
+    prepared = RunnablePassthrough.assign(
+        table_names_to_use=lambda x: get_relevant_tables(x["question"])
+    ).assign(
+        table_info=lambda x: format_table_info(x["table_names_to_use"])
     )
-    
-    # Step 2: Execute the SQL query
-    sql_with_execution = (
-        RunnablePassthrough.assign(
-            sql_query=enhanced_sql_chain
-        )
-        | RunnablePassthrough.assign(
-            results=lambda x: execute_sql_query(x["sql_query"])
-        )
+
+    # Generate SQL
+    with_sql = prepared.assign(
+        sql_query=lambda x: sql_query_chain.invoke(x)
     )
-    
-    # Step 3: Format results as markdown
+
+    # Execute SQL
+    executed = with_sql.assign(
+        results=lambda x: execute_sql_query(x["sql_query"])
+    )
+
+    # Directly get LLM-selected routes
+    with_routes = executed.assign(
+        selected_routes=lambda x: llm.invoke(
+            navigation_selection_prompt.format(
+                question=x["question"],
+                tables=", ".join(x.get("table_names_to_use", [])) or "None",
+                routes="\n".join(x["routes"])
+            )
+        ).content
+    )
+
+    # Format results
     final_chain = (
-        sql_with_execution
+        with_routes
         | RunnablePassthrough.assign(
             formatted_results=lambda x: format_results_as_markdown(x["results"])
         )
         | RunnablePassthrough.assign(
             final_answer=lambda x: results_formatting_chain.invoke({
-                "results": x["formatted_results"]
+                "question": x["question"],
+                "selected_routes": x.get("selected_routes", ""),
+                "results": x["formatted_results"],
             })
         )
         | RunnableLambda(lambda x: {
             "question": x["question"],
             "sql_query": clean_sql_query(x["sql_query"]),
+            "selected_routes": x.get("selected_routes", ""),
             "results": x["results"],
-            "answer": x["final_answer"]
+            "answer": x["final_answer"],
         })
     )
-    
     return final_chain
 
-def ask_question(question: str) -> Dict[str, Any]:
+def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
     """Ask a question and get a formatted answer using the SQL Q&A chain."""
     print(f"\n🔍 Question: {question}")
-    
     try:
         selected_is_dd = database_dd(question)
         selected_db = dd_db if selected_is_dd else node_db
         global db
         db = selected_db
+
         print(f"🗄️ Selected database: {'dd_db' if selected_is_dd else 'node_db'}")
 
         chain = create_sql_qa_chain(selected_db)
-        result = chain.invoke({"question": question})
-        
-        print(f"\n� Generated SQL: {result['sql_query']}")
-        print(f"\n📊 Found {len(result['results'])} results")
-        # print(f"\n🗣️ Answer:\n{result['answer']}")
-        
+        # Provide routes to the chain input so selection can happen inside
+        result = chain.invoke({
+            "question": question,
+            "routes": navigation_routes
+        })
+
+        print(f"\n🧮 Generated SQL: {result['sql_query']}")
+        print(f"🧭 Routes used: {result.get('selected_routes', [])}")
+        print(f"📊 Found {len(result['results'])} results")
+        print(result.get("answer"))
+        result['answer'] = llm_result_parser(result.get("answer"))
         return result
     
     except Exception as e:
