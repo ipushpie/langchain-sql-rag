@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class AIbotstreamRequest(BaseModel):
     question: str
+    navigation_routes: list[str]
     # customer_id: Optional[int]
     # chat_id: Optional[str]
     # entity_id:Optional[int]=None
