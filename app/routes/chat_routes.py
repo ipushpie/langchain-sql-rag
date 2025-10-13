@@ -1,6 +1,6 @@
 from app.schemas.chat_schemas import AIbotstreamRequest
 from app.services.chat_services import ask_question
-from app.utils.logger import get_logger
+from app.config.logger import get_logger
 from fastapi import APIRouter
 
 # Initialize logger

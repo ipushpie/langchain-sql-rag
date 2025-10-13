@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.chat_routes import router as chat_router
-from app.utils.logger import get_logger
+from app.config.logger import get_logger
 
 # Initialize logging
 logger = get_logger(__name__)

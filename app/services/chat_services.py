@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.utils.database import database_dd
 from app.utils.helper import llm_result_parser
-from app.utils.logger import get_logger, log_with_emoji
+from app.config.logger import get_logger, log_with_emoji
 
 # Initialize logger
 logger = get_logger(__name__)
