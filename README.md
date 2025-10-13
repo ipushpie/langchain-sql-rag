@@ -83,8 +83,28 @@ These are referenced by `docker-compose.yml` and the application. Set them in a 
 
 - Optional / service configuration:
   - `DATABASE_URL` or `NODE_DATABASE_URL` / `DD_DATABASE_URL` — SQL database connection strings if you use DB features.
-  - `OLLAMA_BASE_URL` — Base URL for Ollama (default: `http://localhost:11435`).
+  - `OLLAMA_BASE_URL` — Base URL for Ollama (default: `http://localhost:11434`).
   - `OLLAMA_MODEL_NAME` — Ollama model name.
+
+- Logging configuration:
+  - `LOG_LEVEL` — Set logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+  - `LOG_FILE` — Optional file path for logging to file (logs to console by default)
+
+### Logging Configuration
+The application uses Python's built-in logging with timestamps. You can control the verbosity:
+
+- **DEBUG**: Most verbose, includes all debugging information
+- **INFO**: General information, good for production
+- **WARNING**: Only warnings and errors  
+- **ERROR**: Only errors and critical issues
+- **CRITICAL**: Only critical failures
+
+Example log output:
+```
+2025-10-13 14:30:25 | INFO     | chat_routes:15 | Processing chat API request
+2025-10-13 14:30:25 | DEBUG    | chat_services:120 | Analyzing question for relevant tables: list all data breaches
+2025-10-13 14:30:26 | INFO     | chat_services:592 | Selected database: node_db
+```
 
 ## Development notes
 - The app includes a `chat` router (see `app/routes/chat_routes.py`) mounted at `/api/chat`.
