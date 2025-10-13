@@ -12,7 +12,11 @@ class AIBot:
         ):
         try:
             print("entered call_api_bot")
-            result = ask_question(request_body.question, request_body.navigation_routes)
+            result = ask_question(
+                request_body.question, 
+                request_body.navigation_routes,
+                request_body.customer_id
+            )
             return result.get('answer')
         except Exception as ex:
             print("Error: ",ex)

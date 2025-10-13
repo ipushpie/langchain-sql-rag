@@ -49,6 +49,31 @@ docker-compose up -d --build
 - Chat routes are available under `/api/chat` (see `app/routes/chat_routes.py`).
 - OpenAPI docs: `/docs`
 
+### Chat API Features
+The chat API supports intelligent database querying with the following features:
+
+- **Customer-specific filtering**: Include a `customer_id` in your request to filter results for a specific customer
+- **Detailed responses**: Get comprehensive answers with specific data details, not just counts
+- **Optimized prompts**: Faster processing with concise, efficient prompts
+- **Multi-database support**: Automatically selects the appropriate database based on your question
+
+### Example API Request
+```json
+{
+  "question": "list all the data breaches",
+  "navigation_routes": ["/security/breaches", "/compliance/incidents"],
+  "customer_id": 123
+}
+```
+
+### Example Response
+```json
+{
+  "answer": "Found 5 data breaches:\n\n**Recent Breaches:**\n- **Security Incident Alpha** (Status: OPEN) - Occurred: 2025-06-05, Discovered: 2025-06-05\n- **Data Leak Beta** (Status: CLOSED) - Occurred: 2025-05-15, Discovered: 2025-05-16\n\nAll breaches require immediate attention for compliance review.",
+  "routes": "/security/breaches"
+}
+```
+
 ## Environment variables
 These are referenced by `docker-compose.yml` and the application. Set them in a `.env` file or export them in your shell.
 

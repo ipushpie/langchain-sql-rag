@@ -80,23 +80,12 @@ def get_relevant_tables(question: str) -> List[str]:
     all_tables = db.get_usable_table_names()
     print(f"🔍 All available tables: {len(all_tables)} total")
     
-    # Create a more structured prompt that forces clean output
+    # Create a concise table selection prompt
     table_selection_prompt = f"""
-You are a database expert. Given this question and list of tables, select ONLY the most relevant table names.
+Question: {question}
+Tables: {', '.join(all_tables)}
 
-Question: "{question}"
-
-Available tables:
-{', '.join(all_tables)}
-
-INSTRUCTIONS:
-1. Select 3-5 most relevant tables for answering the question
-2. Consider main data tables and related lookup tables for JOINs
-3. Output ONLY table names separated by commas
-4. NO explanations, NO bullet points, NO additional text
-5. Example format: table1, table2, table3
-
-Table names:"""
+Select 3-5 most relevant tables (comma-separated, no explanations):"""
     
     try:
         # Use the LLM to select relevant tables
@@ -317,7 +306,7 @@ def clean_sql_query(query: str) -> str:
     
     return query
 
-def execute_sql_query(query: str) -> List[Dict[str, Any]]:
+def execute_sql_query(query: str, customer_id: int = None) -> List[Dict[str, Any]]:
     """Execute SQL query and return results as a list of dictionaries."""
     try:
         print(f"🔧 Raw query before cleaning: {repr(query)}")
@@ -332,6 +321,17 @@ def execute_sql_query(query: str) -> List[Dict[str, Any]]:
         except ValueError as e:
             print(f"❌ SQL validation failed: {e}")
             return []
+        
+        # Add customer filter if customer_id is provided and not already in query
+        if customer_id and 'customer_id' not in query.lower():
+            # Try to add customer filter intelligently
+            if 'WHERE' in query.upper():
+                query = query + f" AND customer_id = {customer_id}"
+            else:
+                # Find the table alias or name to add WHERE clause
+                if 'FROM' in query.upper():
+                    query = query + f" WHERE customer_id = {customer_id}"
+            print(f"🔧 Added customer filter: customer_id = {customer_id}")
         
         # Add LIMIT if not present
         if 'limit' not in query.lower():
@@ -366,48 +366,60 @@ def format_results_as_markdown(results: List[Dict[str, Any]]) -> str:
     results_json = json.dumps(results, indent=2, default=str)
     return results_json
 
-# Create an enhanced custom prompt for intelligent SQL generation with JOINs
+# Create a concise custom prompt for intelligent SQL generation
 custom_sql_prompt = ChatPromptTemplate.from_template("""
-You are a PostgreSQL expert. Given the database schema below, write a syntactically correct PostgreSQL query to answer the question.
+Write a PostgreSQL query to answer the question using this schema:
 
-Database Schema:
 {table_info}
 
-CRITICAL INSTRUCTIONS:
-
-1. RESPONSE FORMAT:
-   - Write ONLY the SQL query, no explanations or comments
-   - Do not wrap in code blocks or markdown 
-   - Do not include any text before or after the SQL
-   - End with a semicolon
-
-2. COLUMN NAMES AND QUOTING:
-   - Use EXACT column names as shown in the schema
-   - Use double quotes for mixed-case columns (e.g., "createdAt", "updatedAt")
-   - Pay careful attention to capitalization in column names
-   - Never assume column names - only use what's shown in the schema
-
-3. QUERY CONSTRUCTION:
-   - Use proper PostgreSQL syntax
-   - Query for at most {top_k} results using LIMIT clause
-   - Never query for all columns - select only columns needed to answer the question
-   - Be careful about which column is in which table
-   - Use table aliases for cleaner queries
-
-4. JOINS AND RELATIONSHIPS:
-   - Look for foreign key relationships (columns ending in '_id')
-   - Use LEFT JOIN to include related descriptive names when possible
-   - Replace IDs with meaningful names when possible
-   - Ensure all JOIN conditions are correct
-
-5. ORDERING AND FILTERING:
-   - For "recent" data, look for timestamp columns like "createdAt", created_at, date_created
-   - Use DESC order for recent data
-   - Pay attention to exact column name formatting with quotes if needed
+Rules:
+- Use exact column names from schema
+- Quote mixed-case columns: "createdAt", "updatedAt"  
+- Limit to {top_k} results
+- Use LEFT JOIN for related data when helpful
+- Order by timestamp DESC for recent data
+{customer_filter_instruction}
 
 Question: {input}""")
 
-# Add a validation function for Ollama compatibility
+# Concise navigation selection prompt
+navigation_selection_prompt = ChatPromptTemplate.from_template("""
+Select the best route for this question and database tables:
+
+Question: {question}
+Tables: {tables}
+Routes: {routes}
+
+Choose exactly one route:""")
+
+# Enhanced results formatting prompt for detailed answers
+results_formatting_prompt = ChatPromptTemplate.from_template("""
+Convert database results to detailed JSON response:
+
+Question: {question}
+Routes: {selected_routes}
+Results: {results}
+
+Format as JSON with:
+- "answer": Detailed response with specific data (not just counts)
+- "routes": First route from selected routes
+
+For multiple results, show key details for each item.
+For data breaches, include: title, status, date, description
+For customers, include: name, status, contact info
+For requests, include: type, status, date, requester info
+
+Example for breaches:
+"answer": "Found 5 data breaches:\\n\\n**Recent Breaches:**\\n- **new breach** (Status: OPEN) - Occurred: 2025-06-05, Discovered: 2025-06-05\\n- **Another breach** (Status: CLOSED) - Occurred: 2025-05-15, Discovered: 2025-05-16\\n\\nAll breaches require immediate attention for compliance review."
+
+Output valid JSON only:""")
+
+results_formatting_chain = (
+    results_formatting_prompt 
+    | llm 
+    | StrOutputParser()
+)
+
 def validate_and_fix_sql(query: str) -> str:
     """Validate and fix common SQL issues for Ollama-generated queries."""
     print(f"🔍 Validating SQL: {repr(query[:100])}...")
@@ -438,66 +450,20 @@ def validate_and_fix_sql(query: str) -> str:
     print("✅ SQL validation passed")
     return query
 
-
-navigation_selection_prompt = ChatPromptTemplate.from_template("""
-You have to select one navigation route from selection given. Using user question, and tables selected for producing results.
-
-Question: 
-{question}
-
-Tables from database:
-{tables}
-
-Routes:
-{routes}
-
-INSTRUCTIONS:
-- Choose at max 1 route
-- Do not change or alter the route
-""")
-
-results_formatting_prompt = ChatPromptTemplate.from_template("""
-You are a data-to-JSON formatting expert. Your task is to convert database results into a single, valid JSON object.
-
-**Question:**
-{question}
-
-**Selected Routes (Links):**
-{selected_routes}
-
-**Database Results:**
-{results}
-
----
-**RESPONSE GUIDELINES:**
-
-1.  **DICT ONLY:** Your entire output MUST be a single, raw Dict. Do not include any explanatory text before or after.
-2.  **`answer` Key:**
-    -   Directly answer the user's question using the provided database results.
-    -   For 1-5 result rows: Summarize them in a clear, natural language sentence.
-    -   For 6+ result rows: Format the answer as a simple Markdown table.
-    -   If results are empty: Provide a helpful message like "I couldn't find any data matching your question. You might want to try asking about specific topics like customers, requests, assessments, or data breaches. Feel free to rephrase your question!"
-3.  **`routes` Key:**
-    -   The value must be the first link from the "Selected Routes" list.
-4.  **VALIDITY:** Ensure the dict is perfectly valid and uses standard spaces for indentation. Do not use any special or non-standard whitespace characters.
-
----
-**EXAMPLE OUTPUT FORMAT:**
-{{
-    "answer": "A concise natural language answer or a Markdown table.",
-    "routes": "/example/route/from/selected_routes"
-}}
-""")
-
-results_formatting_chain = (
-    results_formatting_prompt 
-    | llm 
-    | StrOutputParser()
-)
-
-def create_sql_qa_chain(selected_db):
-    """Create the complete SQL Q&A chain using LCEL with raw LLM route selection."""
-    sql_query_chain = create_sql_query_chain(llm, selected_db, prompt=custom_sql_prompt)
+def create_sql_qa_chain(selected_db, customer_id=None):
+    """Create the complete SQL Q&A chain using LCEL with customer filtering."""
+    
+    # Add customer filter instruction if customer_id is provided
+    customer_filter_instruction = ""
+    if customer_id:
+        customer_filter_instruction = f"\n- IMPORTANT: Filter results for customer_id = {customer_id} using WHERE or JOIN conditions"
+    
+    # Create SQL query chain with customer filtering
+    sql_query_chain = create_sql_query_chain(
+        llm, 
+        selected_db, 
+        prompt=custom_sql_prompt.partial(customer_filter_instruction=customer_filter_instruction)
+    )
 
     # Prepare schema context
     prepared = RunnablePassthrough.assign(
@@ -511,9 +477,9 @@ def create_sql_qa_chain(selected_db):
         sql_query=lambda x: sql_query_chain.invoke(x)
     )
 
-    # Execute SQL
+    # Execute SQL with customer filtering
     executed = with_sql.assign(
-        results=lambda x: execute_sql_query(x["sql_query"])
+        results=lambda x: execute_sql_query(x["sql_query"], customer_id)
     )
 
     # Directly get LLM-selected routes
@@ -575,23 +541,25 @@ def is_greeting_or_general(question: str) -> bool:
     
     return False
 
-def generate_greeting_response(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
+def generate_greeting_response(question: str, navigation_routes: List[str], customer_id: int = None) -> Dict[str, Any]:
     """Generate a friendly greeting response with helpful information."""
     question_lower = question.lower().strip()
     
+    customer_context = f" for customer {customer_id}" if customer_id else ""
+    
     # Personalized greeting responses
     if any(greeting in question_lower for greeting in ['hi', 'hello', 'hey']):
-        answer = "Hello! I'm your AI assistant. I can help you find information from your database. You can ask me questions like 'Show me recent data breaches' or 'List all customers'."
+        answer = f"Hello! I'm your AI assistant. I can help you find information from your database{customer_context}. You can ask me questions like 'Show me recent data breaches' or 'List all customers'."
     elif any(phrase in question_lower for phrase in ['how are you', 'how\'s it going']):
-        answer = "I'm doing great, thank you for asking! I'm here to help you query and analyze your data. What would you like to know?"
+        answer = f"I'm doing great, thank you for asking! I'm here to help you query and analyze your data{customer_context}. What would you like to know?"
     elif any(phrase in question_lower for phrase in ['who are you', 'what can you do']):
-        answer = "I'm an AI assistant that can help you explore your database. I can answer questions about your data, generate reports, and help you find specific information. Try asking me about customers, requests, assessments, or any other data you're looking for."
+        answer = f"I'm an AI assistant that can help you explore your database{customer_context}. I can answer questions about your data, generate reports, and help you find specific information. Try asking me about customers, requests, assessments, or any other data you're looking for."
     elif any(phrase in question_lower for phrase in ['thank', 'thanks']):
         answer = "You're welcome! Feel free to ask me any questions about your data whenever you need help."
     elif any(phrase in question_lower for phrase in ['bye', 'goodbye']):
         answer = "Goodbye! Come back anytime if you need help with your data queries."
     else:
-        answer = "Hello! I'm your AI data assistant. I can help you find information from your database. Try asking me specific questions about your data, and I'll do my best to help you!"
+        answer = f"Hello! I'm your AI data assistant. I can help you find information from your database{customer_context}. Try asking me specific questions about your data, and I'll do my best to help you!"
     
     # Return empty routes for greetings since no navigation suggestion is relevant
     return {
@@ -604,14 +572,16 @@ def generate_greeting_response(question: str, navigation_routes: List[str]) -> D
         }
     }
 
-def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
+def ask_question(question: str, navigation_routes: List[str], customer_id: int = None) -> Dict[str, Any]:
     """Ask a question and get a formatted answer using the SQL Q&A chain."""
     print(f"\n🔍 Question: {question}")
+    if customer_id:
+        print(f"👤 Customer ID: {customer_id}")
     
     # Check if it's a greeting or general conversation
     if is_greeting_or_general(question):
         print("👋 Detected greeting/general question, generating friendly response")
-        return generate_greeting_response(question, navigation_routes)
+        return generate_greeting_response(question, navigation_routes, customer_id)
     
     try:
         selected_is_dd = database_dd(question)
@@ -621,7 +591,7 @@ def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
 
         print(f"🗄️ Selected database: {'dd_db' if selected_is_dd else 'node_db'}")
 
-        chain = create_sql_qa_chain(selected_db)
+        chain = create_sql_qa_chain(selected_db, customer_id)
         # Provide routes to the chain input so selection can happen inside
         result = chain.invoke({
             "question": question,
@@ -639,19 +609,21 @@ def ask_question(question: str, navigation_routes: List[str]) -> Dict[str, Any]:
         # If no results found, provide a helpful fallback
         if not result['results'] and isinstance(parsed_answer, dict):
             if parsed_answer.get("answer") in ["No results found for your query.", "No results found."]:
-                parsed_answer["answer"] = "I couldn't find any specific data matching your question. This could mean the data doesn't exist, or you might want to try rephrasing your question. Feel free to ask about customers, requests, assessments, or other specific data you're looking for."
+                customer_context = f" for customer {customer_id}" if customer_id else ""
+                parsed_answer["answer"] = f"I couldn't find any specific data matching your question{customer_context}. This could mean the data doesn't exist, or you might want to try rephrasing your question. Feel free to ask about customers, requests, assessments, or other specific data you're looking for."
         
         result['answer'] = parsed_answer
         return result
     
     except Exception as e:
         print(f"\n❌ Error: {e}")
+        customer_context = f" for customer {customer_id}" if customer_id else ""
         return {
             "question": question,
             "sql_query": None,
             "results": [],
             "answer": {
-                "answer": "I encountered an issue while processing your request. Please try rephrasing your question or ask about specific data like customers, requests, or assessments. I'm here to help!",
+                "answer": f"I encountered an issue while processing your request{customer_context}. Please try rephrasing your question or ask about specific data like customers, requests, or assessments. I'm here to help!",
                 "routes": ""
             },
             "error": str(e)
