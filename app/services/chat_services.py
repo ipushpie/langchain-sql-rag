@@ -15,10 +15,7 @@ from sqlalchemy import text
 
 from app.utils.database import database_dd
 from app.utils.helper import llm_result_parser
-from app.config.logger import get_logger, log_with_emoji
-
-# Initialize logger
-logger = get_logger(__name__)
+from app.config.logger import logger
 
 load_dotenv()
 
@@ -38,14 +35,14 @@ dd_db = SQLDatabase.from_uri(dd_db_uri)
 def get_llm():
     """Get the appropriate LLM based on available API keys."""
     if google_api_key:
-        logger.info("Using Gemini model for LLM operations")
+        logger.info("🧠 Using Gemini model for LLM operations")
         return ChatGoogleGenerativeAI(
             model=gemini_model,
             api_key=google_api_key,
             temperature=0.0,
         )
     else:
-        logger.info("Using Ollama model for LLM operations")
+        logger.info("🧠 Using Ollama model for LLM operations")
         return ChatOllama(
             base_url=ollama_url,
             model=ollama_model,
@@ -79,10 +76,10 @@ def extract_foreign_key_relationships(schema_info: str) -> Dict[str, List[str]]:
 
 def get_relevant_tables(question: str) -> List[str]:
     """Get relevant table names based on the question using intelligent schema analysis."""
-    logger.debug(f"Analyzing question for relevant tables: {question}")
+    logger.debug(f"🔍 Analyzing question for relevant tables: {question}")
     
     all_tables = db.get_usable_table_names()
-    logger.debug(f"All available tables: {len(all_tables)} total")
+    logger.debug(f"🔍 Found {len(all_tables)} available tables")
     
     # Create a concise table selection prompt
     table_selection_prompt = f"""
@@ -101,7 +98,7 @@ Select 3-5 most relevant tables (comma-separated, no explanations):"""
         else:
             table_names_str = str(response).strip()
         
-        logger.debug(f"LLM table selection response: {repr(table_names_str)}")
+        logger.debug(f"🤖 LLM response: {repr(table_names_str)}")
         
         # Clean the response - remove any explanations or formatting
         # Take only the first line if there are multiple lines
@@ -121,27 +118,27 @@ Select 3-5 most relevant tables (comma-separated, no explanations):"""
             table_clean = table.strip()
             if table_clean in all_tables:
                 relevant_tables.append(table_clean)
-                logger.debug(f"Validated table: {table_clean}")
+                logger.debug(f"✅ Validated table: {table_clean}")
             else:
-                logger.warning(f"Suggested table not found: {table_clean}")
+                logger.warning(f"⚠️ Table not found: {table_clean}")
         
         # If LLM suggestions are invalid, fall back to keyword matching
         if not relevant_tables:
-            logger.info("LLM suggestions invalid, falling back to keyword matching")
+            logger.info("🔄 Using fallback table selection")
             relevant_tables = fallback_table_selection(question, all_tables)
         
     except Exception as e:
-        logger.error(f"Error with LLM table selection: {e}")
-        logger.info("Falling back to keyword matching")
+        logger.error(f"❌ LLM table selection failed: {e}")
+        logger.info("🔄 Using fallback table selection")
         relevant_tables = fallback_table_selection(question, all_tables)
     
-    logger.info(f"Selected relevant tables: {relevant_tables}")
+    logger.info(f"✅ Selected tables: {relevant_tables}")
     return relevant_tables
 
 def fallback_table_selection(question: str, all_tables: List[str]) -> List[str]:
     """Fallback method for table selection using keyword matching."""
     keywords = [word.lower() for word in question.split()]
-    logger.debug(f"Keywords extracted: {keywords}")
+    logger.debug(f"🔍 Extracting keywords: {keywords}")
     
     # Score tables based on relevance
     table_scores = {}
@@ -202,11 +199,11 @@ def fallback_table_selection(question: str, all_tables: List[str]) -> List[str]:
     for table, score in sorted_tables[:5]:
         if score >= 5:  # Minimum relevance threshold
             top_tables.append(table)
-            logger.debug(f"Selected {table} (score: {score})")
+            logger.debug(f"🎯 Selected {table} (score: {score})")
     
     # If no tables found, try a broader search
     if not top_tables:
-        logger.info("No high-scoring tables found, using broader search")
+        logger.info("🔄 Using broader search for tables")
         # Look for any table containing any keyword
         for table in all_tables:
             table_lower = table.lower()
@@ -219,9 +216,8 @@ def fallback_table_selection(question: str, all_tables: List[str]) -> List[str]:
 
 def format_table_info(tables: List[str]) -> str:
     """Format table information for the prompt."""
-    logger.debug(f"Formatting table info for tables: {tables}")
     if not tables:
-        logger.warning("No tables provided for formatting")
+        logger.warning("⚠️ No tables to format")
         return ""
     
     table_info_parts = []
@@ -229,20 +225,16 @@ def format_table_info(tables: List[str]) -> str:
         try:
             info = db.get_table_info([table])
             table_info_parts.append(info)
-            logger.debug(f"Got schema info for table: {table}")
-            logger.debug(f"Schema preview: {info[:200]}..." if len(info) > 200 else f"Schema: {info}")
         except Exception as e:
-            logger.warning(f"Could not get info for table {table}: {e}")
+            logger.warning(f"⚠️ Could not get schema for {table}: {e}")
             continue
     
     formatted_info = "\n\n".join(table_info_parts)
-    logger.debug(f"Total schema length: {len(formatted_info)} characters")
+    logger.debug(f"📋 Schema loaded: {len(formatted_info)} chars")
     return formatted_info
 
 def clean_sql_query(query: str) -> str:
     """Clean SQL query by removing any prefixes and formatting issues."""
-    logger.debug(f"Raw query input: {repr(query)}")
-    
     if not isinstance(query, str):
         if isinstance(query, dict):
             query = query.get('content') or query.get('text') or str(query)
@@ -258,7 +250,6 @@ def clean_sql_query(query: str) -> str:
     sql_block_match = re.search(sql_block_pattern, query, re.DOTALL | re.IGNORECASE)
     if sql_block_match:
         query = sql_block_match.group(1).strip()
-        logger.debug(f"Extracted from SQL code block: {repr(query)}")
     else:
         # Look for complete SQL statements (including multi-line with FROM clauses)
         # Match from SELECT to the end, handling semicolons properly
@@ -266,13 +257,9 @@ def clean_sql_query(query: str) -> str:
         sql_match = re.search(sql_pattern, query, re.DOTALL | re.IGNORECASE)
         if sql_match:
             query = sql_match.group(1).strip()
-            logger.debug(f"Extracted using complete SQL pattern: {repr(query)}")
         else:
             # Fallback: remove everything before SELECT but keep everything after
-            before_clean = query
             query = re.sub(r'^.*?(?=SELECT|INSERT|UPDATE|DELETE)', '', query, flags=re.DOTALL | re.IGNORECASE)
-            if query != before_clean:
-                logger.debug(f"Removed prefix text, preserved full SQL: {repr(query[:100])}...")
     
     # Remove common prefixes that LLMs sometimes add
     query = re.sub(r'^(sql|sqlquery|query):\s*', '', query.strip(), flags=re.IGNORECASE)
@@ -294,18 +281,14 @@ def clean_sql_query(query: str) -> str:
     if query.endswith(';'):
         query = query[:-1]
     
-    logger.debug(f"Cleaned query: {repr(query)}")
-    
     # Validate that we have a proper SQL query with FROM clause
     if not query or not re.match(r'^(SELECT|INSERT|UPDATE|DELETE)', query, re.IGNORECASE):
-        logger.warning("Cleaned query doesn't look like valid SQL!")
-        logger.warning(f"Original: {repr(original_query)}")
-        logger.warning(f"Cleaned: {repr(query)}")
+        logger.warning("⚠️ Invalid SQL query detected")
         return original_query.strip()  # Return original if cleaning failed
     
     # Check if SELECT query has FROM clause
     if query.upper().startswith('SELECT') and 'FROM' not in query.upper():
-        logger.warning("SELECT query missing FROM clause!")
+        logger.warning("⚠️ SELECT query missing FROM clause")
         return original_query.strip()  # Return original if incomplete
     
     return query
@@ -313,17 +296,14 @@ def clean_sql_query(query: str) -> str:
 def execute_sql_query(query: str, customer_id: int = None) -> List[Dict[str, Any]]:
     """Execute SQL query and return results as a list of dictionaries."""
     try:
-        logger.debug(f"Raw query before cleaning: {repr(query)}")
-        
         # Clean the query
         query = clean_sql_query(query)
-        logger.debug(f"Cleaned query: {repr(query)}")
         
         # Validate the query
         try:
             query = validate_and_fix_sql(query)
         except ValueError as e:
-            logger.error(f"SQL validation failed: {e}")
+            logger.error(f"❌ SQL validation failed: {e}")
             return []
         
         # Add customer filter if customer_id is provided and not already in query
@@ -335,14 +315,12 @@ def execute_sql_query(query: str, customer_id: int = None) -> List[Dict[str, Any
                 # Find the table alias or name to add WHERE clause
                 if 'FROM' in query.upper():
                     query = query + f" WHERE customer_id = {customer_id}"
-            logger.debug(f"Added customer filter: customer_id = {customer_id}")
+            logger.debug(f"🔧 Added customer filter: {customer_id}")
         
         # Add LIMIT if not present
         if 'limit' not in query.lower():
             query += " LIMIT 10"
             
-        logger.debug(f"Final query to execute: {repr(query)}")
-        
         # Execute query and get column names
         with db._engine.connect() as conn:
             result = conn.execute(text(query))
@@ -355,11 +333,11 @@ def execute_sql_query(query: str, customer_id: int = None) -> List[Dict[str, Any
             row_dict = {col: val for col, val in zip(columns, row)}
             results.append(row_dict)
         
-        logger.info(f"SQL query executed successfully, returned {len(results)} rows")
+        logger.info(f"✅ Query executed: {len(results)} rows returned")
         return results
     
     except Exception as e:
-        logger.error(f"Error executing SQL query: {e}")
+        logger.error(f"❌ Query execution failed: {e}")
         return []
 
 def format_results_as_markdown(results: List[Dict[str, Any]]) -> str:
@@ -427,8 +405,6 @@ results_formatting_chain = (
 
 def validate_and_fix_sql(query: str) -> str:
     """Validate and fix common SQL issues for Ollama-generated queries."""
-    logger.debug(f"Validating SQL: {repr(query[:100])}...")
-    
     # Basic syntax checks
     if not query.strip():
         raise ValueError("Empty SQL query")
@@ -445,14 +421,13 @@ def validate_and_fix_sql(query: str) -> str:
     
     # Check for balanced parentheses
     if query.count('(') != query.count(')'):
-        logger.warning("Unbalanced parentheses in query")
+        logger.warning("⚠️ Unbalanced parentheses in query")
     
     # Check for proper quote matching
     double_quotes = query.count('"')
     if double_quotes % 2 != 0:
-        logger.warning("Unmatched double quotes in query")
+        logger.warning("⚠️ Unmatched quotes in query")
     
-    logger.debug("SQL validation passed")
     return query
 
 def create_sql_qa_chain(selected_db, customer_id=None):
@@ -579,13 +554,13 @@ def generate_greeting_response(question: str, navigation_routes: List[str], cust
 
 def ask_question(question: str, navigation_routes: List[str], customer_id: int = None) -> Dict[str, Any]:
     """Ask a question and get a formatted answer using the SQL Q&A chain."""
-    logger.info(f"Processing question: {question}")
+    logger.info(f"🔍 Processing: {question}")
     if customer_id:
-        logger.info(f"Customer ID: {customer_id}")
+        logger.info(f"👤 Customer ID: {customer_id}")
     
     # Check if it's a greeting or general conversation
     if is_greeting_or_general(question):
-        logger.info("Detected greeting/general question, generating friendly response")
+        logger.info("👋 Greeting detected")
         return generate_greeting_response(question, navigation_routes, customer_id)
     
     try:
@@ -594,7 +569,7 @@ def ask_question(question: str, navigation_routes: List[str], customer_id: int =
         global db
         db = selected_db
 
-        logger.info(f"Selected database: {'dd_db' if selected_is_dd else 'node_db'}")
+        logger.info(f"🗄️ Using {'DD' if selected_is_dd else 'Node'} database")
 
         chain = create_sql_qa_chain(selected_db, customer_id)
         # Provide routes to the chain input so selection can happen inside
@@ -603,10 +578,8 @@ def ask_question(question: str, navigation_routes: List[str], customer_id: int =
             "routes": navigation_routes
         })
 
-        logger.info(f"Generated SQL: {result['sql_query']}")
-        logger.debug(f"Routes used: {result.get('selected_routes', [])}")
-        logger.info(f"Found {len(result['results'])} results")
-        logger.debug(f"Answer: {result.get('answer')}")
+        logger.info(f"🧮 Generated SQL: {result['sql_query']}")
+        logger.info(f"📊 Found {len(result['results'])} results")
         
         # Parse the result
         parsed_answer = llm_result_parser(result.get("answer"))
@@ -618,11 +591,11 @@ def ask_question(question: str, navigation_routes: List[str], customer_id: int =
                 parsed_answer["answer"] = f"I couldn't find any specific data matching your question{customer_context}. This could mean the data doesn't exist, or you might want to try rephrasing your question. Feel free to ask about customers, requests, assessments, or other specific data you're looking for."
         
         result['answer'] = parsed_answer
-        logger.info("Question processed successfully")
+        logger.info("✅ Question processed successfully")
         return result
     
     except Exception as e:
-        logger.error(f"Error processing question: {e}")
+        logger.error(f"❌ Processing failed: {e}")
         customer_context = f" for customer {customer_id}" if customer_id else ""
         return {
             "question": question,
